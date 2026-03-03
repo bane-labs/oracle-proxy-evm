@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build artifacts
+artifacts/
+cache/
+typechain-types/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Hardhat
+coverage.json
+coverage/
+
+# Deployment
+deployment-addresses.json
+
+# Wallets (sensitive)
+wallets/
+deployer.json
+*.key
+*.pem
+
+# Temporary files
+*.tmp
+*.temp
