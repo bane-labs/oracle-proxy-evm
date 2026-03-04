@@ -1,4 +1,4 @@
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 import fs from "fs";
 import path from "path";
 import { getDeployer } from "./utils/wallet";
@@ -36,21 +36,21 @@ async function main() {
     throw new Error("ExecutionManager address is required. Set EXECUTION_MANAGER_ADDRESS environment variable or ensure MessageBridge has an ExecutionManager set.");
   }
 
-  // Deploy ExampleBridge
-  console.log("\nDeploying ExampleBridge...");
-  const ExampleBridge = await ethers.getContractFactory("ExampleBridge");
-  
-  console.log("Sending deployment transaction...");
-  const deployTx = await ExampleBridge.connect(deployer).deploy(bridgeAddress, messageBridgeAddress, executionManagerAddress);
-  console.log("Deployment transaction sent, waiting for confirmation...");
-  const txHash = deployTx.deploymentTransaction()?.hash;
-  console.log("Transaction hash:", txHash);
+  // Deploy OracleProxy (upgradeable via UUPS)
+  console.log("\nDeploying OracleProxy (UUPS proxy)...");
+  const OracleProxy = await ethers.getContractFactory("OracleProxy", deployer);
 
-  // Wait for deployment
-  await deployTx.waitForDeployment();
-  const exampleBridgeAddress = await deployTx.getAddress();
-  console.log("ExampleBridge deployed to:", exampleBridgeAddress);
-  
+  const proxy = await upgrades.deployProxy(
+    OracleProxy,
+    [bridgeAddress, messageBridgeAddress, executionManagerAddress, deployer.address],
+    { kind: "uups", initializer: "initialize" }
+  );
+  await proxy.waitForDeployment();
+  const exampleBridgeAddress = await proxy.getAddress();
+  const implAddress = await upgrades.erc1967.getImplementationAddress(exampleBridgeAddress);
+  console.log("OracleProxy proxy deployed to:          ", exampleBridgeAddress);
+  console.log("OracleProxy implementation deployed to: ", implAddress);
+
   // Verify deployment by checking code
   const code = await ethers.provider.getCode(exampleBridgeAddress);
   if (code === "0x") {
@@ -73,7 +73,8 @@ async function main() {
   console.log("\nDeployment addresses saved to:", addressesPath);
 
   console.log("\n=== Deployment Summary ===");
-  console.log("ExampleBridge:", exampleBridgeAddress);
+  console.log("OracleProxy (proxy):         ", exampleBridgeAddress);
+  console.log("OracleProxy (implementation):", implAddress);
   console.log("Bridge:", bridgeAddress);
   console.log("MessageBridge:", messageBridgeAddress);
   console.log("ExecutionManager:", executionManagerAddress);

@@ -4,6 +4,9 @@ pragma solidity ^0.8.25;
 import {INativeBridgeExtended} from "./interfaces/INativeBridgeExtended.sol";
 import {IMessageBridge} from "./messageBridge/interfaces/IMessageBridge.sol";
 import {NeoSerializerLib} from "./libraries/NeoSerializerLib.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /**
  * @title OracleProxy
@@ -11,11 +14,12 @@ import {NeoSerializerLib} from "./libraries/NeoSerializerLib.sol";
  *         1. Bridge GAS from NeoX to N3 using native bridge
  *         2. Send Oracle call through message bridge
  *         3. Receive and store Oracle result
+ * @dev Upgradeable via UUPS proxy pattern. Ownership is required to authorize upgrades.
  */
-contract OracleProxy {
-    INativeBridgeExtended public immutable bridge;
-    IMessageBridge public immutable messageBridge;
-    address public immutable executionManager;
+contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
+    INativeBridgeExtended public bridge;
+    IMessageBridge public messageBridge;
+    address public executionManager;
 
     // Mapping from oracle request ID to oracle result
     mapping(uint256 => bytes) public oracleResults;
@@ -40,16 +44,30 @@ contract OracleProxy {
         bytes result
     );
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     /**
-     * @notice Constructor
+     * @notice Initializer (replaces constructor for upgradeable contracts)
      * @param _bridge Address of the native bridge contract
      * @param _messageBridge Address of the message bridge contract
      * @param _executionManager Address of the execution manager contract
+     * @param _owner Address to set as the contract owner
      */
-    constructor(address _bridge, address _messageBridge, address _executionManager) {
+    function initialize(
+        address _bridge,
+        address _messageBridge,
+        address _executionManager,
+        address _owner
+    ) external initializer {
         require(_bridge != address(0), "Invalid bridge address");
         require(_messageBridge != address(0), "Invalid message bridge address");
         require(_executionManager != address(0), "Invalid execution manager address");
+
+        __Ownable_init(_owner);
+
         bridge = INativeBridgeExtended(_bridge);
         messageBridge = IMessageBridge(_messageBridge);
         executionManager = _executionManager;
@@ -158,4 +176,10 @@ contract OracleProxy {
     function hasOracleResult(uint256 _requestId) external view returns (bool) {
         return hasResult[_requestId];
     }
+
+    /**
+     * @notice Authorizes contract upgrades. Only the owner can upgrade.
+     * @dev Required by UUPSUpgradeable.
+     */
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }
