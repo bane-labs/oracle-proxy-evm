@@ -1,4 +1,4 @@
-import { ethers, upgrades } from "hardhat";
+import { ethers, upgrades, network } from "hardhat";
 import fs from "fs";
 import path from "path";
 import { getDeployer } from "./utils/wallet";
@@ -36,13 +36,20 @@ async function main() {
     throw new Error("ExecutionManager address is required. Set EXECUTION_MANAGER_ADDRESS environment variable or ensure MessageBridge has an ExecutionManager set.");
   }
 
+  // N3 Oracle Proxy address (20-byte Hash160 of the Neo contract, as EVM-style address)
+  const n3OracleProxyAddress = process.env.N3_ORACLE_PROXY_ADDRESS || "";
+  if (!n3OracleProxyAddress || n3OracleProxyAddress === ethers.ZeroAddress) {
+    throw new Error("N3 Oracle Proxy address is required. Set N3_ORACLE_PROXY_ADDRESS (20-byte Neo contract hash as 0x-prefixed hex).");
+  }
+  console.log("N3 Oracle Proxy Address:", n3OracleProxyAddress);
+
   // Deploy OracleProxy (upgradeable via UUPS)
   console.log("\nDeploying OracleProxy (UUPS proxy)...");
   const OracleProxy = await ethers.getContractFactory("OracleProxy", deployer);
 
   const proxy = await upgrades.deployProxy(
     OracleProxy,
-    [bridgeAddress, messageBridgeAddress, executionManagerAddress, deployer.address],
+    [bridgeAddress, messageBridgeAddress, executionManagerAddress, n3OracleProxyAddress, deployer.address],
     { kind: "uups", initializer: "initialize" }
   );
   await proxy.waitForDeployment();
@@ -58,14 +65,20 @@ async function main() {
   }
   console.log("Contract code verified at address");
 
+  // Get network info
+  const networkInfo = await ethers.provider.getNetwork();
+  const networkName = network.name || `chain-${networkInfo.chainId}`;
+
   // Save deployment addresses
   const addresses = {
     exampleBridge: exampleBridgeAddress,
     bridge: bridgeAddress,
     messageBridge: messageBridgeAddress,
     executionManager: executionManagerAddress,
+    n3OracleProxy: n3OracleProxyAddress,
     deployer: deployer.address,
-    network: "neoxDevnet"
+    network: networkName,
+    chainId: networkInfo.chainId.toString()
   };
 
   const addressesPath = path.join(__dirname, "../deployment-addresses.json");
@@ -78,6 +91,7 @@ async function main() {
   console.log("Bridge:", bridgeAddress);
   console.log("MessageBridge:", messageBridgeAddress);
   console.log("ExecutionManager:", executionManagerAddress);
+  console.log("N3 Oracle Proxy:", n3OracleProxyAddress);
 }
 
 main()

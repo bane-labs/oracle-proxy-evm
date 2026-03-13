@@ -33,12 +33,14 @@ describe("OracleProxy", () => {
 
     // Deploy OracleProxy via UUPS proxy
     const OracleProxyFactory = await ethers.getContractFactory("OracleProxy", owner);
+    const n3OracleProxyAddress = "0x0000000000000000000000000000000000000001"; // dummy N3 contract hash
     proxy = (await upgrades.deployProxy(
       OracleProxyFactory,
       [
         await mockBridge.getAddress(),
         await mockMessageBridge.getAddress(),
         other.address, // executionManager (just needs to be non-zero)
+        n3OracleProxyAddress,
         owner.address,
       ],
       { kind: "uups", initializer: "initialize" }
@@ -64,16 +66,22 @@ describe("OracleProxy", () => {
       expect(await proxy.executionManager()).to.equal(other.address);
     });
 
+    it("sets the n3OracleProxyAddress correctly", async () => {
+      expect(await proxy.n3OracleProxyAddress()).to.equal("0x0000000000000000000000000000000000000001");
+    });
+
     it("starts with requestIdCounter = 0", async () => {
       expect(await proxy.requestIdCounter()).to.equal(0n);
     });
+
+    const n3OracleProxyAddress = "0x0000000000000000000000000000000000000001";
 
     it("reverts if bridge address is zero", async () => {
       const OracleProxyFactory = await ethers.getContractFactory("OracleProxy", owner);
       await expect(
         upgrades.deployProxy(
           OracleProxyFactory,
-          [ethers.ZeroAddress, await mockMessageBridge.getAddress(), other.address, owner.address],
+          [ethers.ZeroAddress, await mockMessageBridge.getAddress(), other.address, n3OracleProxyAddress, owner.address],
           { kind: "uups", initializer: "initialize" }
         )
       ).to.be.revertedWith("Invalid bridge address");
@@ -84,7 +92,7 @@ describe("OracleProxy", () => {
       await expect(
         upgrades.deployProxy(
           OracleProxyFactory,
-          [await mockBridge.getAddress(), ethers.ZeroAddress, other.address, owner.address],
+          [await mockBridge.getAddress(), ethers.ZeroAddress, other.address, n3OracleProxyAddress, owner.address],
           { kind: "uups", initializer: "initialize" }
         )
       ).to.be.revertedWith("Invalid message bridge address");
@@ -95,10 +103,21 @@ describe("OracleProxy", () => {
       await expect(
         upgrades.deployProxy(
           OracleProxyFactory,
-          [await mockBridge.getAddress(), await mockMessageBridge.getAddress(), ethers.ZeroAddress, owner.address],
+          [await mockBridge.getAddress(), await mockMessageBridge.getAddress(), ethers.ZeroAddress, n3OracleProxyAddress, owner.address],
           { kind: "uups", initializer: "initialize" }
         )
       ).to.be.revertedWith("Invalid execution manager address");
+    });
+
+    it("reverts if n3OracleProxyAddress is zero", async () => {
+      const OracleProxyFactory = await ethers.getContractFactory("OracleProxy", owner);
+      await expect(
+        upgrades.deployProxy(
+          OracleProxyFactory,
+          [await mockBridge.getAddress(), await mockMessageBridge.getAddress(), other.address, ethers.ZeroAddress, owner.address],
+          { kind: "uups", initializer: "initialize" }
+        )
+      ).to.be.revertedWith("Invalid N3 oracle proxy address");
     });
 
     it("cannot be initialized a second time", async () => {
@@ -107,6 +126,7 @@ describe("OracleProxy", () => {
           await mockBridge.getAddress(),
           await mockMessageBridge.getAddress(),
           other.address,
+          n3OracleProxyAddress,
           owner.address
         )
       ).to.be.revertedWithCustomError(proxy, "InvalidInitialization");
@@ -118,69 +138,75 @@ describe("OracleProxy", () => {
   describe("onOracleResult", () => {
     it("stores the oracle result and marks it as received", async () => {
       const requestId = 42n;
-      const result = ethers.toUtf8Bytes('{"USD":{"price":1.0}}');
+      const responseCode = 0n;
+      const result = '{"USD":{"price":1.0}}';
 
-      await proxy.connect(other).onOracleResult(requestId, result);
+      await proxy.connect(other).onOracleResult(requestId, responseCode, result);
 
       expect(await proxy.hasResult(requestId)).to.be.true;
-      const [storedResult, exists] = await proxy.getOracleResult(requestId);
+      const [storedResult, storedResponseCode, exists] = await proxy.getOracleResult(requestId);
       expect(exists).to.be.true;
-      expect(storedResult).to.equal(ethers.hexlify(result));
+      expect(storedResult).to.equal(result);
+      expect(storedResponseCode).to.equal(responseCode);
     });
 
     it("emits OracleResultReceived event", async () => {
       const requestId = 7n;
-      const result = ethers.toUtf8Bytes("test-result");
+      const responseCode = 0n;
+      const result = "test-result";
 
-      await expect(proxy.connect(other).onOracleResult(requestId, result))
+      await expect(proxy.connect(other).onOracleResult(requestId, responseCode, result))
         .to.emit(proxy, "OracleResultReceived")
-        .withArgs(requestId, ethers.hexlify(result));
+        .withArgs(requestId, responseCode, result);
     });
 
-    it("returns false / empty bytes for a request that has no result", async () => {
-      const [storedResult, exists] = await proxy.getOracleResult(999n);
+    it("returns false / empty string for a request that has no result", async () => {
+      const [storedResult, , exists] = await proxy.getOracleResult(999n);
       expect(exists).to.be.false;
-      expect(storedResult).to.equal("0x");
+      expect(storedResult).to.equal("");
     });
 
     it("hasOracleResult returns false before and true after storing", async () => {
       expect(await proxy.hasOracleResult(1n)).to.be.false;
-      await proxy.onOracleResult(1n, ethers.toUtf8Bytes("data"));
+      await proxy.connect(other).onOracleResult(1n, 0n, "data");
       expect(await proxy.hasOracleResult(1n)).to.be.true;
     });
 
     it("can overwrite an existing result with a new one", async () => {
       const requestId = 1n;
-      const first  = ethers.toUtf8Bytes("first");
-      const second = ethers.toUtf8Bytes("second-longer");
+      const first  = "first";
+      const second = "second-longer";
 
-      await proxy.onOracleResult(requestId, first);
-      await proxy.onOracleResult(requestId, second);
+      await proxy.connect(other).onOracleResult(requestId, 0n, first);
+      await proxy.connect(other).onOracleResult(requestId, 0n, second);
 
       const [storedResult] = await proxy.getOracleResult(requestId);
-      expect(storedResult).to.equal(ethers.hexlify(second));
+      expect(storedResult).to.equal(second);
     });
   });
 
   // ── initiateOracleCall ──────────────────────────────────────────────────────
 
   describe("initiateOracleCall", () => {
-    // A dummy N3 oracle contract address (just needs to be non-zero for serialization)
     const ORACLE_CONTRACT = "0x0000000000000000000000000000000000001234";
 
-    const gasAmount    = ethers.parseEther("0.1");
     const maxBridgeFee = ethers.parseEther("0.01");
-    const maxMsgFee    = ethers.parseEther("0.005");
-    const totalValue   = gasAmount + maxBridgeFee + maxMsgFee;
+    const maxMsgFee = ethers.parseEther("0.005");
+    const gasForOracle = ethers.parseEther("0.2");
+    const gasOracleRequestExec = ethers.parseEther("0.5");
+    const gasOracleResponseReturn = ethers.parseEther("0.3");
+    // Contract needs: gasToBridge (to bridge) + maxMessageFee (to message bridge). gasToBridge = (exec + return + bridgeFee + msgFee) - subsidizedGas.
+    // So totalValue must be >= gasToBridge + maxMessageFee = (exec + return + bridgeFee + msgFee) - 0.1 ether + msgFee
+    const subsidizedGas = ethers.parseEther("0.1");
+    const totalValue = gasOracleRequestExec + gasOracleResponseReturn + maxBridgeFee + maxMsgFee - subsidizedGas + maxMsgFee + 1n;
 
     async function buildCall(): Promise<string> {
       return serializerHelper.buildOracleCall(
         ORACLE_CONTRACT,
         "https://api.example.com/price",
         "$.USD.price",
-        await proxy.getAddress(),   // callbackContract = this proxy
-        "onOracleResult",
-        10_000_000n                 // gasForResponse
+        await proxy.getAddress(),
+        "onOracleResult"
       );
     }
 
@@ -189,26 +215,25 @@ describe("OracleProxy", () => {
       expect(await proxy.requestIdCounter()).to.equal(0n);
 
       await proxy.initiateOracleCall(
-        other.address, gasAmount, maxBridgeFee, serializedOracleCall, maxMsgFee, false,
+        maxBridgeFee, serializedOracleCall, gasForOracle, gasOracleRequestExec, gasOracleResponseReturn, maxMsgFee, false,
         { value: totalValue }
       );
       expect(await proxy.requestIdCounter()).to.equal(1n);
 
       await proxy.initiateOracleCall(
-        other.address, gasAmount, maxBridgeFee, serializedOracleCall, maxMsgFee, false,
+        maxBridgeFee, serializedOracleCall, gasForOracle, gasOracleRequestExec, gasOracleResponseReturn, maxMsgFee, false,
         { value: totalValue }
       );
       expect(await proxy.requestIdCounter()).to.equal(2n);
     });
 
     it("emits OracleCallInitiated with correct requestId and withdrawalNonce", async () => {
-      // INITIAL_NONCE = 5, so withdrawalNonce should be 6
       const expectedWithdrawalNonce = INITIAL_NONCE + 1n;
       const expectedRequestId = 0n;
       const serializedOracleCall = await buildCall();
 
       const tx = await proxy.initiateOracleCall(
-        other.address, gasAmount, maxBridgeFee, serializedOracleCall, maxMsgFee, false,
+        maxBridgeFee, serializedOracleCall, gasForOracle, gasOracleRequestExec, gasOracleResponseReturn, maxMsgFee, false,
         { value: totalValue }
       );
 
@@ -217,31 +242,32 @@ describe("OracleProxy", () => {
         .withArgs(
           expectedRequestId,
           expectedWithdrawalNonce,
-          1n,           // first messageNonce from MockMessageBridge
+          1n,
           owner.address,
-          (v: string) => v.startsWith("0x") // enrichedCall bytes — just verify it's bytes
+          (v: string) => v.startsWith("0x")
         );
     });
 
     it("reverts when msg.value is insufficient", async () => {
       const serializedOracleCall = await buildCall();
-      const insufficientValue = gasAmount + maxBridgeFee + maxMsgFee - 1n;
+      const minValue = gasOracleRequestExec + gasOracleResponseReturn + maxBridgeFee + maxMsgFee - ethers.parseEther("0.1");
+      const insufficientValue = minValue - 1n;
       await expect(
         proxy.initiateOracleCall(
-          other.address, gasAmount, maxBridgeFee, serializedOracleCall, maxMsgFee, false,
+          maxBridgeFee, serializedOracleCall, gasForOracle, gasOracleRequestExec, gasOracleResponseReturn, maxMsgFee, false,
           { value: insufficientValue }
         )
-      ).to.be.revertedWith("Insufficient value");
+      ).to.be.revertedWith("Insufficient value for gas and fees");
     });
 
     it("returns the correct requestId and messageNonce", async () => {
       const serializedOracleCall = await buildCall();
       const [msgNonce, requestId] = await proxy.initiateOracleCall.staticCall(
-        other.address, gasAmount, maxBridgeFee, serializedOracleCall, maxMsgFee, false,
+        maxBridgeFee, serializedOracleCall, gasForOracle, gasOracleRequestExec, gasOracleResponseReturn, maxMsgFee, false,
         { value: totalValue }
       );
       expect(requestId).to.equal(0n);
-      expect(msgNonce).to.equal(1n); // first nonce from MockMessageBridge
+      expect(msgNonce).to.equal(1n);
     });
   });
 
@@ -276,7 +302,7 @@ describe("OracleProxy", () => {
 
     it("owner can upgrade; proxy address stays the same and state is preserved", async () => {
       // Store a result before upgrade
-      await proxy.onOracleResult(1n, ethers.toUtf8Bytes("pre-upgrade"));
+      await proxy.connect(other).onOracleResult(1n, 0n, "pre-upgrade");
 
       const proxyAddress = await proxy.getAddress();
 
@@ -296,9 +322,9 @@ describe("OracleProxy", () => {
       expect(await upgraded.bridge()).to.equal(await mockBridge.getAddress());
 
       // State (oracle result) survived the upgrade
-      const [result, exists] = await upgraded.getOracleResult(1n);
+      const [result, , exists] = await upgraded.getOracleResult(1n);
       expect(exists).to.be.true;
-      expect(result).to.equal(ethers.hexlify(ethers.toUtf8Bytes("pre-upgrade")));
+      expect(result).to.equal("pre-upgrade");
     });
   });
 });
