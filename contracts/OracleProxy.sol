@@ -3,8 +3,11 @@ pragma solidity ^0.8.25;
 
 import {INativeBridgeExtended} from "./interfaces/INativeBridgeExtended.sol";
 import {IMessageBridge} from "./messageBridge/interfaces/IMessageBridge.sol";
+import {IExecutionManager} from "./messageBridge/interfaces/IExecutionManager.sol";
+import {AMBTypes} from "./libraries/AMBTypes.sol";
+import {AMBStorage} from "./messageBridge/AMBStorage.sol";
 import {NeoSerializerLib} from "./libraries/NeoSerializerLib.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -16,11 +19,14 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
  *         3. Receive and store Oracle result
  * @dev Upgradeable via UUPS proxy pattern. Ownership is required to authorize upgrades.
  */
-contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
+contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable {
     INativeBridgeExtended public bridge;
     IMessageBridge public messageBridge;
-    address public executionManager;
+    IExecutionManager public executionManager;
     address public n3OracleProxyAddress;
+
+    // subsidized gas storage
+    uint256 public subsidizedGas;
 
     // Mapping from oracle request ID to oracle result
     mapping(uint256 => string) public oracleResults;
@@ -33,9 +39,6 @@ contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
     // Auto-incrementing request ID counter; first ID = 0
     uint256 public requestIdCounter;
-
-    // subsidized gas storage
-    uint256 public subsidizedGas;
 
     // Events
     event OracleCallInitiated(
@@ -54,6 +57,7 @@ contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
     event ExecutionManagerUpdated(address indexed oldExecutionManager, address indexed newExecutionManager);
     event N3OracleProxyAddressUpdated(address indexed oldN3OracleProxyAddress, address indexed newN3OracleProxyAddress);
+    event SubsidizedGasUpdated(uint256 oldSubsidizedGas, uint256 newSubsidizedGas);
     event BridgeUpdated(address indexed oldBridge, address indexed newBridge);
     event MessageBridgeUpdated(address indexed oldMessageBridge, address indexed newMessageBridge);
 
@@ -82,10 +86,11 @@ contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         require(_n3OracleProxyAddress != address(0), "Invalid N3 oracle proxy address");
 
         __Ownable_init(_owner);
+        __Ownable2Step_init();
 
         bridge = INativeBridgeExtended(_bridge);
         messageBridge = IMessageBridge(_messageBridge);
-        executionManager = _executionManager;
+        executionManager = IExecutionManager(_executionManager);
         n3OracleProxyAddress = _n3OracleProxyAddress;
         subsidizedGas = 1e17; // 0.1 GAS
     }
@@ -117,10 +122,23 @@ contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         uint256 _maxMessageFee,
         bool _storeResult
     ) external payable returns (uint256 messageNonce, uint256 requestId) {
-	    require(_gasForOracle <= _gasOracleRequestExec, "gasForOracle must be <= gasOracleRequestExec");
 	    require(_gasForOracle > 1e17, "gasForOracle must be > 0.1 GAS"); 
-	    require(msg.value >= (_gasOracleRequestExec + _gasOracleResponseReturn + _maxBridgeFee + _maxMessageFee) - subsidizedGas,
-        "Insufficient value for gas and fees");
+	    require(_gasForOracle <= _gasOracleRequestExec, "gasForOracle must be <= gasOracleRequestExec");
+        //"Insufficient value for gas and fees");
+
+        uint256 gasToBridge =
+            _gasOracleRequestExec +
+            _gasOracleResponseReturn +
+            _maxBridgeFee;
+
+        uint256 totalRequired = gasToBridge + _maxMessageFee;
+
+        uint256 appliedSubsidy =
+            subsidizedGas > totalRequired ? totalRequired : subsidizedGas;
+
+        uint256 userRequired = totalRequired - appliedSubsidy;
+
+        require(msg.value >= userRequired, "insufficient value for gas and fees");
 
         // Assign a new request ID (starts at 0, increments per call)
         requestId = requestIdCounter++;
@@ -128,7 +146,6 @@ contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         // Get the current withdrawal nonce (will be incremented by withdrawNative)
         uint256 currentWithdrawalNonce = bridge.nativeBridge().withdrawalState.nonce;
         uint256 withdrawalNonce = currentWithdrawalNonce + 1;
-	    uint256 gasToBridge = (_gasOracleRequestExec + _gasOracleResponseReturn + _maxBridgeFee + _maxMessageFee) - subsidizedGas;
         // Step 1: Bridge GAS to N3
         bridge.withdrawNative{value: gasToBridge }(n3OracleProxyAddress, _maxBridgeFee);
 
@@ -158,21 +175,27 @@ contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
      *         and raw oracle result bytes, then forwards it through the N3→EVM message bridge
      *         as an executable message.
      * @param _requestId    The oracle request ID on the N3 side
-     * @param responseCode  The oracle response code (e.g., 0x00 = Success)
+     * @param _responseCode  The oracle response code (e.g., 0x00 = Success)
      * @param _oracleResult The oracle response string (UTF-8 JSON from the Oracle)
      */
-    function onOracleResult(uint256 _requestId, uint256 responseCode, string calldata _oracleResult) external {
-        // Allow execution from MessageBridge or ExecutionManager (which executes on behalf of MessageBridge)
+    function persistOracleResult(uint256 _requestId, uint256 _responseCode, string calldata _oracleResult) external {
         require(
-            msg.sender == executionManager,
-            "Only message bridge execution"
+            msg.sender == address(executionManager),
+            "Only execution manager"
         );
 
+        uint256 nonce = executionManager.executingNonce();
+        AMBStorage.StoredMessage memory storedMessage = AMBStorage(address(messageBridge)).getEvmMessage(nonce);
+        AMBTypes.MetadataExecutable memory metadata = abi.decode(
+            storedMessage.encodedMetadata, (AMBTypes.MetadataExecutable)
+        );
+        require(metadata.sender == n3OracleProxyAddress, "Sender is not N3 Oracle Proxy");
+
         oracleResults[_requestId] = _oracleResult;
-        oracleResponseCodes[_requestId] = responseCode;
+        oracleResponseCodes[_requestId] = _responseCode;
         hasResult[_requestId] = true;
 
-        emit OracleResultReceived(_requestId, responseCode, _oracleResult);
+        emit OracleResultReceived(_requestId, _responseCode, _oracleResult);
     }
 
     /**
@@ -202,8 +225,11 @@ contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     }
 
     function setSubsidizedGas(uint256 _subsidizedGas) external onlyOwner {
-        require(_subsidizedGas > 0, "Subsidized gas must be greater than 0");
+        require(_subsidizedGas >= 0, "Subsidized gas must be greater than 0");
+        require(_subsidizedGas <= 1e18, "Subsidy is capped to maximum 1 GAS"); // maximum 1 gas per oracle call.
+        uint256 oldSubsidizedGas = subsidizedGas;
         subsidizedGas = _subsidizedGas;
+        emit SubsidizedGasUpdated(oldSubsidizedGas, _subsidizedGas);
     }
     
     function setN3OracleProxyAddress(address _n3OracleProxyAddress) external onlyOwner {
@@ -220,8 +246,8 @@ contract OracleProxy is Initializable, OwnableUpgradeable, UUPSUpgradeable {
      */
     function setExecutionManager(address _executionManager) external onlyOwner {
         require(_executionManager != address(0), "Invalid execution manager address");
-        address oldExecutionManager = executionManager;
-        executionManager = _executionManager;
+        address oldExecutionManager = address(executionManager);
+        executionManager = IExecutionManager(_executionManager);
         emit ExecutionManagerUpdated(oldExecutionManager, _executionManager);
     }
 

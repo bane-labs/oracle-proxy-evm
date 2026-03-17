@@ -4,6 +4,8 @@ pragma solidity 0.8.25;
 import {AMBTypes} from "../../libraries/AMBTypes.sol";
 
 interface IExecutionManager {
+    function executingNonce() external view returns (uint256);
+
     function executeMessage(
         uint256 nonce,
         bytes calldata rawMessage,

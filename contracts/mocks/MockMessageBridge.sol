@@ -13,6 +13,8 @@ import {BridgeLib} from "../libraries/BridgeLib.sol";
 contract MockMessageBridge is IMessageBridge {
     uint256 public messageNonce;
 
+    mapping(uint256 => AMBStorage.StoredMessage) private _storedMessages;
+
     // ── IMessageBridge (key function) ────────────────────────────────────────
 
     function sendExecutableMessage(
@@ -20,6 +22,19 @@ contract MockMessageBridge is IMessageBridge {
         bool
     ) external payable override returns (uint256 nonce) {
         nonce = ++messageNonce;
+    }
+
+    // ── Test helpers ─────────────────────────────────────────────────────────
+
+    function setStoredMessage(uint256 nonce, bytes calldata encodedMetadata, bytes calldata rawMessage) external {
+        _storedMessages[nonce] = AMBStorage.StoredMessage({
+            encodedMetadata: encodedMetadata,
+            rawMessage: rawMessage
+        });
+    }
+
+    function getEvmMessage(uint256 nonce) external view returns (AMBStorage.StoredMessage memory) {
+        return _storedMessages[nonce];
     }
 
     // ── Stubs ────────────────────────────────────────────────────────────────
