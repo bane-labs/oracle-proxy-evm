@@ -86,7 +86,6 @@ contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable 
         require(_n3OracleProxyAddress != address(0), "Invalid N3 oracle proxy address");
 
         __Ownable_init(_owner);
-        __Ownable2Step_init();
 
         bridge = INativeBridgeExtended(_bridge);
         messageBridge = IMessageBridge(_messageBridge);
@@ -101,7 +100,7 @@ contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable 
      *         2. Sends Oracle call through message bridge
      * @param _maxBridgeFee Maximum fee willing to pay for bridge withdrawal
      * @param _serializedOracleCall Pre-serialized NeoMethodCall bytes for the Oracle request
-     *                              (must contain exactly 4 args: url, filter, callbackContract,
+     *                              (must contain exactly 3 args: url, filter,
      *                               callbackMethod — gasForOracle, gasOracleRequestExec,
      *                               gasOracleResponseReturn, nonce, and requestId are appended
      *                               here automatically)
@@ -151,7 +150,7 @@ contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable 
 
         // Append gas params, withdrawal nonce, and requestId to the pre-serialized call.
         // After appending the N3 signature is:
-        //   requestOracleData(url, filter, callbackContract, callbackMethod,
+        //   requestOracleData(url, filter, callbackMethod,
         //                     gasForOracle, gasOracleRequestExec, gasOracleResponseReturn, nonce, requestId)
         bytes memory enrichedCall = bytes(_serializedOracleCall);
         enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(_gasForOracle));
