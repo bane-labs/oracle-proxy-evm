@@ -225,7 +225,7 @@ contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable 
     }
 
     function setSubsidizedGas(uint256 _subsidizedGas) external onlyOwner {
-        require(_subsidizedGas >= 0, "Subsidized gas must be greater than 0");
+        require(_subsidizedGas >= 0, "Subsidized gas must be non-negative");
         require(_subsidizedGas <= 1e18, "Subsidy is capped to maximum 1 GAS"); // maximum 1 gas per oracle call.
         uint256 oldSubsidizedGas = subsidizedGas;
         subsidizedGas = _subsidizedGas;
