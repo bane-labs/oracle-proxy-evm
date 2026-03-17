@@ -6,7 +6,15 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "deploy": "hardhat run scripts/deploy.ts --network neoxDevnet"
+    "deploy": "hardhat run scripts/deploy.ts --network neoxDevnet",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network neoxMainnet",
+    "deploy:testnet": "hardhat run scripts/deploy.ts --network neoxTestnet",
+    "upgrade": "hardhat run scripts/upgrade.ts --network neoxDevnet",
+    "upgrade:mainnet": "hardhat run scripts/upgrade.ts --network neoxMainnet",
+    "upgrade:testnet": "hardhat run scripts/upgrade.ts --network neoxTestnet",
+    "update-config": "hardhat run scripts/update-config.ts --network neoxDevnet",
+    "update-config:mainnet": "hardhat run scripts/update-config.ts --network neoxMainnet",
+    "update-config:testnet": "hardhat run scripts/update-config.ts --network neoxTestnet"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.2",
@@ -17,6 +25,7 @@
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@openzeppelin/hardhat-upgrades": "^3.0.5",
     "chai": "^4.3.10",
+    "dotenv": "^16.6.1",
     "ethers": "^6.13.0",
     "hardhat": "^2.26.3",
     "typechain": "^8.3.2"
