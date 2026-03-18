@@ -239,12 +239,10 @@ describe("OracleProxy", () => {
     const gasForOracle = ethers.parseEther("0.2");
     const gasOracleRequestExec = ethers.parseEther("0.5");
     const gasOracleResponseReturn = ethers.parseEther("0.3");
-    // Contract needs: gasToBridge (to bridge) + maxMessageFee (to message bridge). gasToBridge = (exec + return + bridgeFee + msgFee) - subsidizedGas.
-    // So totalValue must be >= gasToBridge + maxMessageFee = (exec + return + bridgeFee + msgFee) - 0.1 ether + msgFee
+    // gasToBridge = gasForOracle + gasOracleRequestExec + gasOracleResponseReturn + maxBridgeFee
+    // totalRequired = gasToBridge + maxMessageFee
     const subsidizedGas = ethers.parseEther("0.1");
-    const totalRequired = gasOracleRequestExec + gasOracleResponseReturn + maxBridgeFee + maxMsgFee;
-    // User pays userRequired (totalRequired - subsidy); proxy needs totalRequired for bridge + message fees.
-    // For tests we send totalRequired so the proxy has enough; the subsidy test uses userRequired - 1.
+    const totalRequired = gasForOracle + gasOracleRequestExec + gasOracleResponseReturn + maxBridgeFee + maxMsgFee;
     const totalValue = totalRequired + 1n;
 
     async function buildCall(): Promise<string> {
@@ -256,6 +254,62 @@ describe("OracleProxy", () => {
         "onOracleResult"
       );
     }
+
+    it("reverts if any uint256 arg exceeds 8-decimal precision", async () => {
+      const serializedOracleCall = await buildCall();
+
+      await expect(
+        proxy.initiateOracleCall(
+          maxBridgeFee + 1n,
+          serializedOracleCall,
+          gasForOracle,
+          gasOracleRequestExec,
+          gasOracleResponseReturn,
+          maxMsgFee,
+          false,
+          { value: totalValue }
+        )
+      ).to.be.revertedWith("maxBridgeFee exceeds 8 decimal precision");
+
+      await expect(
+        proxy.initiateOracleCall(
+          maxBridgeFee,
+          serializedOracleCall,
+          gasForOracle + 1n,
+          gasOracleRequestExec,
+          gasOracleResponseReturn,
+          maxMsgFee,
+          false,
+          { value: totalValue }
+        )
+      ).to.be.revertedWith("gasForOracle exceeds 8 decimal precision");
+
+      await expect(
+        proxy.initiateOracleCall(
+          maxBridgeFee,
+          serializedOracleCall,
+          gasForOracle,
+          gasOracleRequestExec + 1n,
+          gasOracleResponseReturn,
+          maxMsgFee,
+          false,
+          { value: totalValue }
+        )
+      ).to.be.revertedWith("gasOracleRequestExec exceeds 8 decimal precision");
+
+      await expect(
+        proxy.initiateOracleCall(
+          maxBridgeFee,
+          serializedOracleCall,
+          gasForOracle,
+          gasOracleRequestExec,
+          gasOracleResponseReturn,
+          maxMsgFee + 1n,
+          false,
+          { value: totalValue }
+        )
+      ).to.be.revertedWith("maxMessageFee exceeds 8 decimal precision");
+    });
 
     it("increments requestIdCounter on each call", async () => {
       const serializedOracleCall = await buildCall();
@@ -297,7 +351,9 @@ describe("OracleProxy", () => {
 
     it("reverts when msg.value is insufficient", async () => {
       const serializedOracleCall = await buildCall();
-      const minValue = totalRequired - subsidizedGas;
+      const minValue =
+        (gasOracleRequestExec + gasOracleResponseReturn + maxBridgeFee + maxMsgFee) -
+        subsidizedGas;
       const insufficientValue = minValue - 1n;
       await expect(
         proxy.initiateOracleCall(

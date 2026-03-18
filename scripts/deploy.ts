@@ -43,27 +43,47 @@ async function main() {
   }
   console.log("N3 Oracle Proxy Address:", n3OracleProxyAddress);
 
+  // Owner address (defaults to deployer if not provided)
+  const ownerAddress = process.env.OWNER_ADDRESS || deployer.address;
+  console.log("Owner Address:", ownerAddress);
+
+  // Optional subsidized gas (wei); applied post-deploy if set
+  const subsidizedGasEnv = process.env.SUBSIDIZED_GAS || "";
+
   // Deploy OracleProxy (upgradeable via UUPS)
   console.log("\nDeploying OracleProxy (UUPS proxy)...");
   const OracleProxy = await ethers.getContractFactory("OracleProxy", deployer);
 
   const proxy = await upgrades.deployProxy(
     OracleProxy,
-    [bridgeAddress, messageBridgeAddress, executionManagerAddress, n3OracleProxyAddress, deployer.address],
+    [bridgeAddress, messageBridgeAddress, executionManagerAddress, n3OracleProxyAddress, ownerAddress],
     { kind: "uups", initializer: "initialize" }
   );
   await proxy.waitForDeployment();
-  const exampleBridgeAddress = await proxy.getAddress();
-  const implAddress = await upgrades.erc1967.getImplementationAddress(exampleBridgeAddress);
-  console.log("OracleProxy proxy deployed to:          ", exampleBridgeAddress);
+  const oracleProxyAddress = await proxy.getAddress();
+  const implAddress = await upgrades.erc1967.getImplementationAddress(oracleProxyAddress);
+  console.log("OracleProxy proxy deployed to:          ", oracleProxyAddress);
   console.log("OracleProxy implementation deployed to: ", implAddress);
 
   // Verify deployment by checking code
-  const code = await ethers.provider.getCode(exampleBridgeAddress);
+  const code = await ethers.provider.getCode(oracleProxyAddress);
   if (code === "0x") {
     throw new Error("Contract deployment failed - no code at address");
   }
   console.log("Contract code verified at address");
+
+  // Optionally set subsidized gas if provided
+  let subsidizedGas = "";
+  if (subsidizedGasEnv) {
+    console.log("\nSetting subsidized gas to:", subsidizedGasEnv, "wei");
+    const tx = await (proxy as any).setSubsidizedGas(subsidizedGasEnv);
+    await tx.wait();
+    subsidizedGas = subsidizedGasEnv;
+    console.log("Subsidized gas set successfully");
+  } else {
+    subsidizedGas = (await (proxy as any).subsidizedGas()).toString();
+    console.log("\nSubsidized gas (default):", subsidizedGas, "wei");
+  }
 
   // Get network info
   const networkInfo = await ethers.provider.getNetwork();
@@ -71,11 +91,13 @@ async function main() {
 
   // Save deployment addresses
   const addresses = {
-    exampleBridge: exampleBridgeAddress,
+    oracleProxyEvm: oracleProxyAddress,
     bridge: bridgeAddress,
     messageBridge: messageBridgeAddress,
     executionManager: executionManagerAddress,
     n3OracleProxy: n3OracleProxyAddress,
+    owner: ownerAddress,
+    subsidizedGas: subsidizedGas,
     deployer: deployer.address,
     network: networkName,
     chainId: networkInfo.chainId.toString()
@@ -86,12 +108,14 @@ async function main() {
   console.log("\nDeployment addresses saved to:", addressesPath);
 
   console.log("\n=== Deployment Summary ===");
-  console.log("OracleProxy (proxy):         ", exampleBridgeAddress);
+  console.log("OracleProxy (proxy):         ", oracleProxyAddress);
   console.log("OracleProxy (implementation):", implAddress);
+  console.log("Owner:", ownerAddress);
   console.log("Bridge:", bridgeAddress);
   console.log("MessageBridge:", messageBridgeAddress);
   console.log("ExecutionManager:", executionManagerAddress);
   console.log("N3 Oracle Proxy:", n3OracleProxyAddress);
+  console.log("Subsidized Gas:", subsidizedGas, "wei");
 }
 
 main()

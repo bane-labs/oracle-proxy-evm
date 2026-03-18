@@ -61,9 +61,22 @@ contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable 
     event BridgeUpdated(address indexed oldBridge, address indexed newBridge);
     event MessageBridgeUpdated(address indexed oldMessageBridge, address indexed newMessageBridge);
 
+    /// @dev N3 GAS has 8 decimals; EVM uses 18. Values must be divisible by 10^10 for lossless conversion.
+    uint256 private constant MAX_PRECISION_DIVISOR = 1e10;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+    }
+
+    /**
+     * @notice Ensures a uint256 value has at most 8 decimal precision (N3 GAS compatibility).
+     *         Values must be divisible by 10^10 when using 18-decimal wei format.
+     * @param value The value to check
+     * @param paramName The parameter name for the error message
+     */
+    function _requireMax8Decimals(uint256 value, string memory paramName) internal pure {
+        require(value % MAX_PRECISION_DIVISOR == 0, string(abi.encodePacked(paramName, " exceeds 8 decimal precision")));
     }
 
     /**
@@ -105,7 +118,7 @@ contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable 
      *                               gasOracleResponseReturn, nonce, and requestId are appended
      *                               here automatically)
      * @param _gasForOracle Gas allocated for the Oracle node (must be > 0.1 GAS and <= _gasOracleRequestExec)
-     * @param _gasOracleRequestExec Gas for Oracle request execution on N3
+     * @param _gasOracleRequestExec Gas for Oracle request execution on N3 (includes _gasForOracle)
      * @param _gasOracleResponseReturn Gas for returning Oracle response to EVM
      * @param _maxMessageFee Maximum fee willing to pay for message sending
      * @param _storeResult Whether to store the execution result
@@ -121,13 +134,17 @@ contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable 
         uint256 _maxMessageFee,
         bool _storeResult
     ) external payable returns (uint256 messageNonce, uint256 requestId) {
-	    require(_gasForOracle > 1e17, "gasForOracle must be > 0.1 GAS"); 
-	    require(_gasForOracle <= _gasOracleRequestExec, "gasForOracle must be <= gasOracleRequestExec");
+        _requireMax8Decimals(_gasForOracle, "gasForOracle");
+        _requireMax8Decimals(_gasOracleRequestExec, "gasOracleRequestExec");
+        _requireMax8Decimals(_gasOracleResponseReturn, "gasOracleResponseReturn");
+
+	require(_gasForOracle >= 1e7, "gasForOracle must be >= 0.1 GAS"); 
+	require(_gasForOracle <= _gasOracleRequestExec, "gasForOracle must be <= gasOracleRequestExec");
         //"Insufficient value for gas and fees");
 
         uint256 gasToBridge =
             _gasOracleRequestExec +
-            _gasOracleResponseReturn +
+            _gasOracleResponseReturn + 
             _maxBridgeFee;
 
         uint256 totalRequired = gasToBridge + _maxMessageFee;
@@ -153,9 +170,9 @@ contract OracleProxy is Initializable, Ownable2StepUpgradeable, UUPSUpgradeable 
         //   requestOracleData(url, filter, callbackMethod,
         //                     gasForOracle, gasOracleRequestExec, gasOracleResponseReturn, nonce, requestId)
         bytes memory enrichedCall = bytes(_serializedOracleCall);
-        enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(_gasForOracle));
-        enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(_gasOracleRequestExec));
-        enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(_gasOracleResponseReturn));
+        enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(_gasForOracle / MAX_PRECISION_DIVISOR)); // scale to 8 decimals
+        enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(_gasOracleRequestExec / MAX_PRECISION_DIVISOR));
+        enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(_gasOracleResponseReturn / MAX_PRECISION_DIVISOR));
         enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(withdrawalNonce));
         enrichedCall = NeoSerializerLib.appendArgToCall(enrichedCall, NeoSerializerLib.serialize(requestId));
 
