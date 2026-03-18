@@ -1,7 +1,7 @@
 import { ethers } from "hardhat";
 
 async function main() {
-  const exampleBridgeAddr = "0xF4A2D63b598F3c0b8095FBec64e012605f481DB8";
+  const oracleProxyAddr = "0xF4A2D63b598F3c0b8095FBec64e012605f481DB8";
   const provider = ethers.provider;
   
   const iface = new ethers.Interface([
@@ -11,10 +11,10 @@ async function main() {
   const requestId = 4;
   const data = iface.encodeFunctionData("getOracleResult", [requestId]);
   
-  console.log(`Calling getOracleResult(${requestId}) on ExampleBridge...`);
-  console.log("Contract address:", exampleBridgeAddr);
+  console.log(`Calling getOracleResult(${requestId}) on OracleProxy...`);
+  console.log("Contract address:", oracleProxyAddr);
   
-  const result = await provider.call({ to: exampleBridgeAddr, data });
+  const result = await provider.call({ to: oracleProxyAddr, data });
   
   if (result === "0x") {
     console.log("No result data returned");
