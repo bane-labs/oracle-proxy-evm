@@ -9,12 +9,18 @@
     "deploy": "hardhat run scripts/deploy.ts --network neoxDevnet",
     "deploy:mainnet": "hardhat run scripts/deploy.ts --network neoxMainnet",
     "deploy:testnet": "hardhat run scripts/deploy.ts --network neoxTestnet",
+    "deploy:dry-run": "DRY_RUN=true hardhat run scripts/deploy.ts --network neoxDevnet",
+    "deploy:dry-run:mainnet": "DRY_RUN=true hardhat run scripts/deploy.ts --network neoxMainnet",
+    "deploy:dry-run:testnet": "DRY_RUN=true hardhat run scripts/deploy.ts --network neoxTestnet",
     "upgrade": "hardhat run scripts/upgrade.ts --network neoxDevnet",
     "upgrade:mainnet": "hardhat run scripts/upgrade.ts --network neoxMainnet",
     "upgrade:testnet": "hardhat run scripts/upgrade.ts --network neoxTestnet",
     "update-config": "hardhat run scripts/update-config.ts --network neoxDevnet",
     "update-config:mainnet": "hardhat run scripts/update-config.ts --network neoxMainnet",
-    "update-config:testnet": "hardhat run scripts/update-config.ts --network neoxTestnet"
+    "update-config:testnet": "hardhat run scripts/update-config.ts --network neoxTestnet",
+    "nonce": "hardhat run scripts/nonce.ts --network neoxDevnet",
+    "nonce:mainnet": "hardhat run scripts/nonce.ts --network neoxMainnet",
+    "nonce:testnet": "hardhat run scripts/nonce.ts --network neoxTestnet"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.2",
