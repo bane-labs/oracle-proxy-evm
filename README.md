@@ -53,6 +53,15 @@ npx hardhat run scripts/deploy.ts --network neoxDevnet
 
 Deployment addresses will be saved to `deployment-addresses.json`.
 
+### Deployed Addresses
+
+OracleProxy contract deployed address by network:
+
+| Network  | OracleProxy Address |
+|----------|--------------------------|
+| testnet  | 0xce6138E61e5727a318D0DebEaD99Aff24B929131 |
+| mainnet  | 0xce6138E61e5727a318D0DebEaD99Aff24B929131 |
+
 ## Configuration
 
 The Hardhat configuration supports the following environment variables:
