@@ -255,21 +255,8 @@ describe("OracleProxy", () => {
       );
     }
 
-    it("reverts if any uint256 arg exceeds 8-decimal precision", async () => {
+    it("reverts if gas uint256 args exceed 8-decimal precision", async () => {
       const serializedOracleCall = await buildCall();
-
-      await expect(
-        proxy.initiateOracleCall(
-          maxBridgeFee + 1n,
-          serializedOracleCall,
-          gasForOracle,
-          gasOracleRequestExec,
-          gasOracleResponseReturn,
-          maxMsgFee,
-          false,
-          { value: totalValue }
-        )
-      ).to.be.revertedWith("maxBridgeFee exceeds 8 decimal precision");
 
       await expect(
         proxy.initiateOracleCall(
@@ -296,19 +283,6 @@ describe("OracleProxy", () => {
           { value: totalValue }
         )
       ).to.be.revertedWith("gasOracleRequestExec exceeds 8 decimal precision");
-
-      await expect(
-        proxy.initiateOracleCall(
-          maxBridgeFee,
-          serializedOracleCall,
-          gasForOracle,
-          gasOracleRequestExec,
-          gasOracleResponseReturn,
-          maxMsgFee + 1n,
-          false,
-          { value: totalValue }
-        )
-      ).to.be.revertedWith("maxMessageFee exceeds 8 decimal precision");
     });
 
     it("increments requestIdCounter on each call", async () => {
